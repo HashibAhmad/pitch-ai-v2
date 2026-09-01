@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Logo from '$lib/components/Logo.svelte';
-	import { gsap, prefersReducedMotion } from '$lib/animations/gsap';
+	import { ensureGsap, gsap, prefersReducedMotion } from '$lib/animations/gsap';
 	import { parallax, hoverLift } from '$lib/animations/actions';
 
-	let heroBg: HTMLImageElement;
+	let heroSectionEl: HTMLElement;
+	let heroBg: HTMLVideoElement;
 	let navEl: HTMLElement;
 	let headingEl: HTMLHeadingElement;
 	let subheadEl: HTMLParagraphElement;
@@ -13,7 +14,12 @@
 	let dotEl: HTMLSpanElement;
 
 	onMount(() => {
+		// Reduced motion: skip the entrance choreography and the pin/zoom/fade
+		// scrub entirely. The video still autoplays as a plain, static-looking
+		// cover background — no scale, no fade, no pinning.
 		if (prefersReducedMotion()) return;
+
+		ensureGsap();
 
 		const lines = headingEl.querySelectorAll(':scope > span');
 		const ctaChildren = ctaRowEl.children;
@@ -33,7 +39,7 @@
 			.to(ctaChildren, { y: 0, opacity: 1, duration: 0.6, stagger: 0.12 }, '-=0.4')
 			.to(scrollIndicatorEl, { y: 0, opacity: 1, duration: 0.6 }, '-=0.25');
 
-		gsap.to(dotEl, {
+		const dotTween = gsap.to(dotEl, {
 			y: 6,
 			duration: 1,
 			repeat: -1,
@@ -42,21 +48,50 @@
 			delay: 2.2
 		});
 
+		// Pin the hero while the video scrubs a zoom-in + fade-out tied directly
+		// to scroll position, then release into the next section once it completes.
+		const scrollTl = gsap.timeline({
+			scrollTrigger: {
+				trigger: heroSectionEl,
+				start: 'top top',
+				end: '+=100%',
+				scrub: 1,
+				pin: true,
+				pinSpacing: true,
+				anticipatePin: 1,
+				invalidateOnRefresh: true
+			}
+		});
+		scrollTl.fromTo(
+			heroBg,
+			{ scale: 1, opacity: 1 },
+			{ scale: 1.35, opacity: 0, ease: 'none' },
+			0
+		);
+
 		return () => {
 			tl.kill();
+			dotTween.kill();
+			scrollTl.scrollTrigger?.kill();
+			scrollTl.kill();
 		};
 	});
 </script>
 
-<section class="hero">
-	<img
+<section class="hero" bind:this={heroSectionEl}>
+	<video
 		bind:this={heroBg}
-		src="/figma/hero-bg.jpg"
-		alt=""
 		class="hero-bg"
 		aria-hidden="true"
-		use:parallax={{ amount: 60 }}
-	/>
+		poster="/figma/hero-bg.jpg"
+		autoplay
+		muted
+		loop
+		playsinline
+		preload="auto"
+	>
+		<source src="/header-video-v2.mp4" type="video/mp4" />
+	</video>
 	<div class="glow" aria-hidden="true" use:parallax={{ amount: 30 }}></div>
 
 	<nav class="nav" bind:this={navEl}>
@@ -132,8 +167,11 @@
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+		object-position: center;
+		background: #000;
 		z-index: 0;
-		will-change: transform;
+		pointer-events: none;
+		will-change: transform, opacity;
 	}
 
 	.glow {
